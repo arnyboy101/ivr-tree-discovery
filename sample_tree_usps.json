@@ -1,0 +1,103 @@
+{
+  "phone_number": "1-800-275-8777",
+  "company": "USPS",
+  "total_cost": 1.8028,
+  "total_nodes": 7,
+  "total_edges": 6,
+  "nodes": [
+    {
+      "id": "c2a188ac",
+      "parent_id": null,
+      "dtmf_path": "",
+      "prompt_text": "USPS Customer Care Center asking how they can help with various postal services",
+      "status": "completed",
+      "cost": 0.2448
+    },
+    {
+      "id": "6e436d62",
+      "parent_id": "c2a188ac",
+      "dtmf_path": "1",
+      "prompt_text": "USPS main menu offering package tracking, mail services, tools for pricing/locations, stamps ordering, service alerts, and other services",
+      "status": "completed",
+      "cost": 0.527
+    },
+    {
+      "id": "a7965a57",
+      "parent_id": "c2a188ac",
+      "dtmf_path": "2",
+      "prompt_text": "USPS menu offering package tracking, mail services, pricing/locations, stamps, alerts, and other services",
+      "status": "completed",
+      "cost": 0.512
+    },
+    {
+      "id": "b190bdbd",
+      "parent_id": "c2a188ac",
+      "dtmf_path": "3",
+      "prompt_text": "USPS Customer Care Center main menu offering services for packages, mail, tools, stamps, alerts, and other inquiries",
+      "status": "completed",
+      "cost": 0.519
+    },
+    {
+      "id": "8a67e9a1",
+      "parent_id": "c2a188ac",
+      "dtmf_path": "4",
+      "prompt_text": "",
+      "status": "pending",
+      "cost": 0.0
+    },
+    {
+      "id": "39942bb3",
+      "parent_id": "c2a188ac",
+      "dtmf_path": "5",
+      "prompt_text": "",
+      "status": "pending",
+      "cost": 0.0
+    },
+    {
+      "id": "51eda9f3",
+      "parent_id": "c2a188ac",
+      "dtmf_path": "6",
+      "prompt_text": "",
+      "status": "pending",
+      "cost": 0.0
+    }
+  ],
+  "edges": [
+    {
+      "from_node": "c2a188ac",
+      "to_node": "6e436d62",
+      "dtmf_key": "1",
+      "label": "Package services (track, delivery issues, re-delivery)"
+    },
+    {
+      "from_node": "c2a188ac",
+      "to_node": "a7965a57",
+      "dtmf_key": "2",
+      "label": "Mail services (delivery, pickup, change of address, hold mail)"
+    },
+    {
+      "from_node": "c2a188ac",
+      "to_node": "b190bdbd",
+      "dtmf_key": "3",
+      "label": "Tools (pricing, post office hours, locations, zip codes)"
+    },
+    {
+      "from_node": "c2a188ac",
+      "to_node": "8a67e9a1",
+      "dtmf_key": "4",
+      "label": "Stamps (order stamps, check order status)"
+    },
+    {
+      "from_node": "c2a188ac",
+      "to_node": "39942bb3",
+      "dtmf_key": "5",
+      "label": "Alerts (privacy statements, service alerts)"
+    },
+    {
+      "from_node": "c2a188ac",
+      "to_node": "51eda9f3",
+      "dtmf_key": "6",
+      "label": "Other"
+    }
+  ]
+}

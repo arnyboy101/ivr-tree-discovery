@@ -1,0 +1,267 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useWebSocket } from './hooks/useWebSocket';
+import { Controls } from './components/Controls';
+import { TreeView } from './components/TreeView';
+import { NodeDetail } from './components/NodeDetail';
+import type { IVRNode, IVREdge, SessionInfo, ServerMessage } from './types';
+
+// Stable WS session ID that survives HMR reloads
+const WS_ID = sessionStorage.getItem('ws_session_id') ?? crypto.randomUUID();
+sessionStorage.setItem('ws_session_id', WS_ID);
+
+function getSessionIdFromUrl(): string | null {
+  const path = window.location.pathname.replace(/^\//, '');
+  // Must look like a UUID
+  return /^[0-9a-f-]{36}$/i.test(path) ? path : null;
+}
+
+function StatusBar({ session }: { session: SessionInfo | null }) {
+  if (!session || session.status === 'pending') return null;
+
+  const progress =
+    session.total_nodes > 0
+      ? Math.round(
+          ((session.completed_nodes + session.failed_nodes) / session.total_nodes) * 100
+        )
+      : 0;
+
+  const isRunning = session.status === 'running';
+
+  return (
+    <div className="flex items-center gap-4 text-xs">
+      {isRunning && (
+        <div className="flex items-center gap-2">
+          <div className="w-24 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-gray-500 tabular-nums">
+            {session.completed_nodes}/{session.total_nodes}
+          </span>
+        </div>
+      )}
+
+      <span
+        className={
+          isRunning
+            ? 'text-indigo-400'
+            : session.status === 'completed'
+            ? 'text-emerald-400'
+            : 'text-red-400'
+        }
+      >
+        {isRunning
+          ? 'Discovering'
+          : session.status === 'completed'
+          ? `Done — ${session.total_nodes} nodes`
+          : 'Failed'}
+      </span>
+
+      {session.failed_nodes > 0 && (
+        <span className="text-red-500/70 tabular-nums">
+          {session.failed_nodes} failed
+        </span>
+      )}
+
+      {session.total_cost > 0 && (
+        <span className="text-gray-600 tabular-nums">${session.total_cost.toFixed(4)}</span>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const { status, sendMessage, onMessage } = useWebSocket(WS_ID);
+
+  const [nodes, setNodes] = useState<IVRNode[]>([]);
+  const [edges, setEdges] = useState<IVREdge[]>([]);
+  const [session, setSession] = useState<SessionInfo | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Restore session from URL on mount
+  useEffect(() => {
+    const urlSessionId = getSessionIdFromUrl();
+    if (urlSessionId) {
+      fetch(`/api/recover-stuck`)
+        .then(() => fetch(`/api/sessions/${urlSessionId}`))
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.session && data.nodes?.length > 0) {
+            setSession(data.session);
+            setNodes(data.nodes);
+            setEdges(data.edges || []);
+          }
+        })
+        .catch((e) => console.error('Failed to restore session:', e));
+    }
+  }, []);
+
+  useEffect(() => {
+    onMessage((msg: ServerMessage) => {
+      switch (msg.type) {
+        case 'node_added':
+          setNodes((prev) =>
+            prev.some((n) => n.id === msg.node.id) ? prev : [...prev, msg.node]
+          );
+          break;
+        case 'node_updated':
+          setNodes((prev) =>
+            prev.map((n) =>
+              n.id === msg.node_id
+                ? {
+                    ...n,
+                    status: msg.status ?? n.status,
+                    prompt_text: msg.prompt_text ?? n.prompt_text,
+                    cost: msg.cost ?? n.cost,
+                    call_id: msg.call_id ?? n.call_id,
+                  }
+                : n
+            )
+          );
+          break;
+        case 'edge_added':
+          setEdges((prev) =>
+            prev.some((e) => e.id === msg.edge.id) ? prev : [...prev, msg.edge]
+          );
+          break;
+        case 'session_status':
+          setSession(msg.session);
+          // Update URL when we get the first session status (discovery started)
+          if (msg.session.id && window.location.pathname === '/') {
+            window.history.pushState(null, '', `/${msg.session.id}`);
+          }
+          break;
+        case 'live_transcript':
+          setNodes((prev) =>
+            prev.map((n) =>
+              n.id === msg.node_id
+                ? { ...n, prompt_text: msg.text.substring(msg.text.length - 120) }
+                : n
+            )
+          );
+          break;
+        case 'subtree_cleared': {
+          const deletedNodes = new Set(msg.deleted_node_ids);
+          const deletedEdges = new Set(msg.deleted_edge_ids);
+          setNodes((prev) => prev.filter((n) => !deletedNodes.has(n.id)));
+          setEdges((prev) => prev.filter((e) => !deletedEdges.has(e.id)));
+          break;
+        }
+        case 'error':
+          console.error('Server error:', msg.message);
+          break;
+      }
+    });
+  }, [onMessage]);
+
+  const handleDiscover = useCallback(
+    (phoneNumber: string) => {
+      setNodes([]);
+      setEdges([]);
+      setSession(null);
+      setSelectedNodeId(null);
+      sendMessage({ type: 'start_discovery', phone_number: phoneNumber });
+    },
+    [sendMessage]
+  );
+
+  const handleStop = useCallback(() => {
+    sendMessage({ type: 'cancel' });
+  }, [sendMessage]);
+
+  const handleClear = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setSession(null);
+    setSelectedNodeId(null);
+    window.history.pushState(null, '', '/');
+  }, []);
+
+  const handleRediscover = useCallback(
+    (nodeId: string) => {
+      setSelectedNodeId(null);
+      sendMessage({ type: 'rediscover_subtree', node_id: nodeId });
+    },
+    [sendMessage]
+  );
+
+  const isRunning = session?.status === 'running';
+  const hasSession = nodes.length > 0;
+  const selectedNode = selectedNodeId
+    ? nodes.find((n) => n.id === selectedNodeId) ?? null
+    : null;
+
+  return (
+    <div className="h-full flex flex-col bg-[#030712] text-white">
+      {/* Header */}
+      <header className="flex items-center justify-between px-5 py-3 border-b border-gray-800/50 bg-[#030712]/80 backdrop-blur-md z-10">
+        <div className="flex items-center gap-5">
+          <h1
+            className="text-base font-semibold tracking-tight text-gray-200 cursor-pointer hover:text-white transition-colors"
+            onClick={handleClear}
+          >
+            IVR Discovery
+          </h1>
+          <div className="w-px h-5 bg-gray-800" />
+          <Controls
+            onDiscover={handleDiscover}
+            onStop={handleStop}
+            onClear={handleClear}
+            isRunning={isRunning}
+            hasSession={hasSession}
+          />
+        </div>
+
+        <div className="flex items-center gap-4">
+          <StatusBar session={session} />
+          <div className="w-px h-4 bg-gray-800" />
+          <div className="flex items-center gap-1.5">
+            <div
+              className={`w-2 h-2 rounded-full transition-colors ${
+                status === 'connected'
+                  ? 'bg-emerald-500'
+                  : status === 'connecting'
+                  ? 'bg-amber-500 animate-pulse'
+                  : 'bg-red-500'
+              }`}
+            />
+            <span className="text-[11px] text-gray-600 capitalize">{status}</span>
+          </div>
+        </div>
+      </header>
+
+      {/* Tree + Detail Panel */}
+      <main className="flex-1 flex overflow-hidden">
+        <div className="flex-1 relative">
+          {hasSession ? (
+            <TreeView
+              nodes={nodes}
+              edges={edges}
+              onNodeClick={(id) => setSelectedNodeId(id === selectedNodeId ? null : id)}
+            />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center gap-3">
+              <div className="text-gray-700 text-sm">
+                Enter a phone number to map its IVR tree
+              </div>
+            </div>
+          )}
+        </div>
+
+        {selectedNode && (
+          <NodeDetail
+            node={selectedNode}
+            edges={edges}
+            allNodes={nodes}
+            onClose={() => setSelectedNodeId(null)}
+            onRediscover={handleRediscover}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default App;

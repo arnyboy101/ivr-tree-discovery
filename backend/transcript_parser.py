@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import json
+import os
+import logging
+
+from anthropic import AsyncAnthropic
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
+
+PARSE_PROMPT = """You are analyzing a transcript from an IVR (Interactive Voice Response) phone system call. Our AI agent called the number and listened. In the transcript, "user" is the IVR system speaking, and "assistant"/"agent" is our listener.
+
+CRITICAL: If the agent pressed a button (e.g. "Pressed Button: 3"), focus ONLY on what the IVR said AFTER the button press. Ignore the menu that was read before the button press — that was the parent menu. The submenu after the press is what we care about.
+
+Extract the menu options from the CURRENT menu level (after any button press).
+
+IMPORTANT RULES:
+1. Only include options that represent actual menu destinations (e.g. "Billing", "Technical support", "Track a package")
+2. EXCLUDE navigation/utility options like: "repeat", "start over", "go back", "continue", "main menu", "hear options again", "previous menu"
+3. If an option has BOTH a DTMF key AND a voice equivalent (e.g. "say mobile or press 1"), only include it ONCE with the DTMF key
+4. For voice-only options with no DTMF key, use "say1", "say2", etc.
+5. Only include options EXPLICITLY stated by the IVR system
+6. If the IVR asked for input that our agent can't provide (enter a number, record a message, provide account info, etc.) — return empty options and set prompt_text to describe what action is required (e.g. "Enter 10-digit fax number", "Record a message then press #")
+7. If no menu was presented, return an empty options array
+8. For conversational IVRs that say "you can say things like X, Y, or Z" — those ARE the menu options
+
+Return ONLY valid JSON:
+{
+  "prompt_text": "Brief summary of what the IVR said at THIS menu level (after any button press)",
+  "options": [
+    {"dtmf_key": "1", "label": "Billing"},
+    {"dtmf_key": "2", "label": "Technical support"}
+  ]
+}
+
+Transcript:
+"""
+
+# Navigation/utility labels to filter out
+SKIP_LABELS = {
+    "repeat", "start over", "go back", "continue", "main menu",
+    "hear options again", "previous menu", "replay", "hear again",
+    "return to main menu", "repeat options", "repeat menu",
+}
+
+
+def _normalize_label(label: str) -> str:
+    return label.strip().lower()
+
+
+def _deduplicate_options(options: list[dict]) -> list[dict]:
+    """Remove duplicates where the same option has both DTMF and voice versions.
+
+    Keeps the DTMF version when both exist.
+    """
+    # Group by normalized label
+    by_label: dict[str, list[dict]] = {}
+    for opt in options:
+        key = _normalize_label(opt["label"])
+        by_label.setdefault(key, []).append(opt)
+
+    deduped = []
+    for label, group in by_label.items():
+        # Skip navigation options
+        if label in SKIP_LABELS:
+            logger.info(f"Skipping navigation option: {label}")
+            continue
+
+        # Prefer DTMF over voice
+        dtmf = [o for o in group if not o["dtmf_key"].startswith("say")]
+        if dtmf:
+            deduped.append(dtmf[0])
+        else:
+            deduped.append(group[0])
+
+    return deduped
+
+
+async def parse_transcript(transcript_text: str) -> dict:
+    """Parse an IVR transcript and extract menu structure using Claude.
+
+    Returns {"prompt_text": str, "options": [{"dtmf_key": str, "label": str}]}
+    """
+    if not transcript_text or len(transcript_text.strip()) < 5:
+        return {"prompt_text": "", "options": []}
+
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": PARSE_PROMPT + transcript_text,
+                }
+            ],
+        )
+
+        text = response.content[0].text.strip()
+
+        # Extract JSON from response (handle markdown code blocks)
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+
+        result = json.loads(text)
+
+        if not isinstance(result, dict):
+            logger.warning(f"Expected dict, got {type(result)}: {text}")
+            return {"prompt_text": "", "options": []}
+
+        prompt_text = str(result.get("prompt_text", ""))
+        options = result.get("options", [])
+        human_transfer = bool(result.get("human_transfer", False))
+
+        # Validate options
+        valid_options = []
+        for opt in options:
+            if isinstance(opt, dict) and "dtmf_key" in opt and "label" in opt:
+                valid_options.append({
+                    "dtmf_key": str(opt["dtmf_key"]),
+                    "label": str(opt["label"]),
+                })
+
+        # Deduplicate and filter navigation options
+        valid_options = _deduplicate_options(valid_options)
+
+        logger.info(f"Parsed {len(valid_options)} options from transcript (after dedup/filter), human_transfer={human_transfer}")
+        return {"prompt_text": prompt_text, "options": valid_options, "human_transfer": human_transfer}
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse Claude response as JSON: {e}")
+        return {"prompt_text": transcript_text[:200], "options": []}
+    except Exception as e:
+        logger.exception(f"Error parsing transcript: {e}")
+        return {"prompt_text": "", "options": []}

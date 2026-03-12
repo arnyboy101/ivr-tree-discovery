@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* React Flow overrides */
+.react-flow__node {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.react-flow__edge-path {
+  transition: stroke 0.3s ease, stroke-width 0.3s ease;
+}
+
+.react-flow__edge-textbg {
+  rx: 6;
+  ry: 6;
+}
+
+.react-flow__controls {
+  border: 1px solid #1F2937 !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+}
+
+.react-flow__controls button {
+  background: #111827 !important;
+  border-color: #1F2937 !important;
+  color: #6B7280 !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.react-flow__controls button:hover {
+  background: #1F2937 !important;
+  color: #D1D5DB !important;
+}
+
+.react-flow__controls button svg {
+  fill: currentColor !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+}
+
+/* Animated edge dashes */
+.react-flow__edge.animated path {
+  stroke-dasharray: 5;
+  animation: dash 0.5s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}

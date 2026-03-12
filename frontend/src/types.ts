@@ -1,0 +1,48 @@
+export type NodeStatus = 'pending' | 'calling' | 'parsing' | 'completed' | 'failed';
+export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface IVRNode {
+  id: string;
+  session_id: string;
+  parent_id: string | null;
+  dtmf_path: string;
+  prompt_text: string;
+  status: NodeStatus;
+  call_id: string | null;
+  cost: number;
+  created_at: string;
+}
+
+export interface IVREdge {
+  id: string;
+  from_node_id: string;
+  to_node_id: string | null;
+  dtmf_key: string;
+  label: string;
+}
+
+export interface SessionInfo {
+  id: string;
+  phone_number: string;
+  status: SessionStatus;
+  total_cost: number;
+  total_nodes: number;
+  completed_nodes: number;
+  failed_nodes: number;
+}
+
+// WebSocket message types
+export type ServerMessage =
+  | { type: 'connected'; session_id: string }
+  | { type: 'node_added'; node: IVRNode }
+  | { type: 'node_updated'; node_id: string; status: NodeStatus; prompt_text?: string; cost?: number; call_id?: string }
+  | { type: 'edge_added'; edge: IVREdge }
+  | { type: 'session_status'; session: SessionInfo }
+  | { type: 'live_transcript'; node_id: string; text: string }
+  | { type: 'subtree_cleared'; node_id: string; deleted_node_ids: string[]; deleted_edge_ids: string[] }
+  | { type: 'error'; message: string };
+
+export type ClientMessage =
+  | { type: 'start_discovery'; phone_number: string }
+  | { type: 'rediscover_subtree'; node_id: string }
+  | { type: 'cancel' };
