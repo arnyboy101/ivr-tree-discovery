@@ -58,7 +58,7 @@ function nodeLabel(node: IVRNode): string {
 
 function TreeViewInner({ nodes, edges, onNodeClick }: TreeViewProps) {
   const { fitView } = useReactFlow();
-  const fitViewTimer = useRef<ReturnType<typeof setTimeout>>();
+  const fitViewTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Build a map of node_id -> edge label for display on child nodes
   const edgeLabelMap = useMemo(() => {

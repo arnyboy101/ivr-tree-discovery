@@ -13,7 +13,7 @@ export function useWebSocket(sessionId: string): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<((msg: ServerMessage) => void)[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     let unmounted = false;
